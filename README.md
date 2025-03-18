@@ -1,6 +1,36 @@
-# MCP Server for BSC Wallet Management
+# BSC Wallet Provider for Cursor
 
-This MCP (Model Context Protocol) server provides tools for managing BSC wallets and tokens, as well as deploying smart contracts directly from your local environment.
+This MCP (Model Context Protocol) server provides tools for managing BSC wallets and tokens directly within Cursor.
+
+## Features
+
+- **Wallet Management**: Create, import, list wallets and check balances
+- **Token Operations**: Transfer tokens, check balances, and approve spending
+- **Network Switching**: Toggle between BSC Mainnet and Testnet without restart
+- **Persistent Storage**: Wallets are saved locally for future sessions
+
+## Installation
+
+1. Clone this repository
+2. Install dependencies
+   ```
+   npm install
+   ```
+3. Create a `.env` file (optional) to customize network settings
+
+## Adding to Cursor
+
+1. Open Cursor
+2. Go to Settings -> MCP Servers
+3. Click "Add new global MCP server"
+4. Give it a name (e.g., "BSC Wallet")
+5. For the command, enter:
+   ```
+   node /path/to/mcp-server-new.js
+   ```
+   Replace `/path/to/` with the actual path where you saved the file
+   
+   Example: `node ~/Desktop/mcp/mcp-server-new.js`
 
 ## Available Tools
 
@@ -9,82 +39,54 @@ This MCP (Model Context Protocol) server provides tools for managing BSC wallets
 - **wallet.import** - Import an existing BSC wallet using private key
 - **wallet.list** - List all available wallets
 - **wallet.balance** - Get the balance of a wallet
-- **wallet.send** - Send BNB from a wallet to another address
+- **wallet.send** - Send BNB/tBNB from a wallet to another address
 
 ### Token Management
-- **token.list** - List all available tokens for a wallet
-- **token.balance** - Get the balance of a token for a wallet
-- **token.transfer** - Transfer tokens from a wallet to another address
-- **token.approve** - Approve a spender to use tokens from a wallet
+- **token.list** - List all tokens for a wallet
+- **token.balance** - Get the balance of a token
+- **token.transfer** - Transfer tokens between wallets
+- **token.approve** - Approve token spending
 
-### Contract Deployment
-- **contract.deploy** - Deploy a smart contract from a compiled JSON artifact
+### Network Operations
+- **network.switch** - Switch between mainnet and testnet
 
-## How to Use Contract Deployment
+## Usage Examples
 
-The new contract deployment feature allows you to deploy smart contracts directly from your local environment without having to use additional tools or commands.
-
-### Prerequisites
-1. A compiled contract JSON artifact (ABI and bytecode)
-2. A wallet with sufficient BNB for gas fees
-
-### Example Usage
-
-1. Create or import a wallet:
+### Create a wallet
 ```javascript
-// Create a new wallet
-const result = await mcp__wallet_create({ name: "DeployerWallet" });
+const result = await mcp_BSC_wallet_wallet_create({ name: "MyWallet" });
+```
 
-// Or import an existing wallet
-const result = await mcp__wallet_import({ 
-  privateKey: "your-private-key", 
-  name: "DeployerWallet" 
+### Switch network
+```javascript
+// Switch to mainnet
+const result = await mcp_BSC_wallet_network_switch({ network: "mainnet" });
+
+// Switch to testnet
+const result = await mcp_BSC_wallet_network_switch({ network: "testnet" });
+```
+
+### Send tokens
+```javascript
+const result = await mcp_BSC_wallet_token_transfer({
+  address: "0xYourWalletAddress",
+  tokenAddress: "0xTokenContractAddress",
+  to: "0xRecipientAddress",
+  amount: "100"
 });
 ```
 
-2. Make sure your wallet has enough BNB for gas fees:
-```javascript
-const result = await mcp__wallet_balance({ address: "your-wallet-address" });
-```
+## Network Configuration
 
-3. Deploy a contract using the compiled JSON artifact:
-```javascript
-const result = await mcp__contract_deploy({
-  address: "your-wallet-address",
-  contractPath: "/path/to/your/contract.json",
-  constructorArgs: ["Constructor", "Args", "Here"],
-  gasLimit: "5000000" // Optional
-});
-```
+The server can work with both BSC Mainnet and Testnet:
 
-### Example: Deploy an ERC20 Token
+- **Testnet**: For testing with free tBNB (default)
+- **Mainnet**: For real transactions with actual BNB
 
-The repository includes a sample ERC20 token contract JSON artifact (`SimpleToken.json`) that you can use to test the deployment feature:
-
-```javascript
-const result = await mcp__contract_deploy({
-  address: "your-wallet-address",
-  contractPath: "./SimpleToken.json",
-  constructorArgs: ["My Token", "MTK", "1000000000000000000000000"] // Name, Symbol, Initial Supply (1 million tokens with 18 decimals)
-});
-```
-
-After successful deployment, you'll receive a response with the contract address and transaction hash:
-
-```json
-{
-  "status": "success",
-  "contract": {
-    "address": "0x...",
-    "deploymentTransaction": "0x...",
-    "deployer": "0x..."
-  }
-}
-```
+You can switch networks at any time using the `network.switch` tool without restarting the server.
 
 ## Notes
 
-- The contract deployment feature currently supports only compiled JSON artifacts with ABI and bytecode.
-- Direct Solidity compilation is not supported. You need to compile your contracts separately before deployment.
-- Make sure your wallet has enough BNB to cover the gas fees for contract deployment.
-- The constructor arguments must match the expected types and order defined in your contract. 
+- Wallets are stored in the `wallets` directory as JSON files
+- The network state persists during the server session
+- Your private keys are stored locally and are never sent to any external services 
