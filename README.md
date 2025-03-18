@@ -52,29 +52,8 @@ This MCP (Model Context Protocol) server provides tools for managing BSC wallets
 
 ## Usage Examples
 
-### Create a wallet
-```javascript
-const result = await mcp_BSC_wallet_wallet_create({ name: "MyWallet" });
-```
+![image](https://github.com/user-attachments/assets/210deac1-cca5-47dc-9070-062d3fd931b2)
 
-### Switch network
-```javascript
-// Switch to mainnet
-const result = await mcp_BSC_wallet_network_switch({ network: "mainnet" });
-
-// Switch to testnet
-const result = await mcp_BSC_wallet_network_switch({ network: "testnet" });
-```
-
-### Send tokens
-```javascript
-const result = await mcp_BSC_wallet_token_transfer({
-  address: "0xYourWalletAddress",
-  tokenAddress: "0xTokenContractAddress",
-  to: "0xRecipientAddress",
-  amount: "100"
-});
-```
 
 ## Network Configuration
 
