@@ -11,6 +11,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
 import { request, gql } from 'graphql-request';
+import gmgnClient from './src/services/gmgn.js';
+import { getTopTradersGMGN, getTokenTradesGMGN, getMultipleTopTradersGMGN } from './src/services/gmgn-wrapper.js';
+import { getTopTradersGMGNTron, getTokenTradesGMGNTron, getMultipleTopTradersGMGNTron } from './src/services/gmgn-tron-wrapper.js';
 
 // Get the directory name for the current module first
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -693,6 +696,266 @@ const TokenLiquidityEventsSchema = z.object({
   tokenAddress: z.string(),
   limit: z.number().min(1).max(100).optional()
 });
+
+// GMGN Schemas
+const GMGNTopTradersSchema = z.object({
+  tokenAddress: z.string().describe("Token smart contract address"),
+  limit: z.number().optional().describe("Maximum number of traders to return (default: 100)"),
+  orderBy: z.string().optional().describe("Field to order results by (default: 'profit')"),
+  direction: z.string().optional().describe("Sort direction (asc or desc)"),
+});
+
+const GMGNMultipleTopTradersSchema = z.object({
+  tokenAddresses: z.array(z.string()).describe("Array of token smart contract addresses"),
+  limit: z.number().optional().describe("Maximum number of traders to return per token (default: 5)"),
+  orderBy: z.string().optional().describe("Field to order results by (default: 'profit')"),
+  direction: z.string().optional().describe("Sort direction (asc or desc)"),
+});
+
+const GMGNTokenTradesSchema = z.object({
+  tokenAddress: z.string().describe("Token smart contract address"),
+  fromTimestamp: z.number().optional().describe("Start timestamp"),
+  toTimestamp: z.number().optional().describe("End timestamp"),
+  limit: z.number().optional().describe("Maximum number of trades to return (default: 100)"),
+  maker: z.string().optional().describe("Trader wallet address"),
+});
+
+// GMGN Tool Implementations
+async function topTradersGMGNTool({ tokenAddress, limit = 100, orderBy = "profit", direction = "desc" }) {
+  try {
+    const result = await getTopTradersGMGN(tokenAddress, limit, orderBy, direction);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            status: "success",
+            network: currentNetwork,
+            topTraders: result.traders || [],
+            count: result.count || 0,
+            tokenAddress
+          })
+        }
+      ]
+    };
+  } catch (error) {
+    console.error("Error in topTradersGMGNTool:", error);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            status: "error",
+            message: error.message,
+            network: currentNetwork
+          })
+        }
+      ]
+    };
+  }
+}
+
+async function multipleTopTradersGMGNTool({ tokenAddresses, limit = 5, orderBy = "profit", direction = "desc" }) {
+  try {
+    const result = await getMultipleTopTradersGMGN(tokenAddresses, limit, orderBy, direction);
+    
+    // Transform the results into a more readable format
+    const formattedResults = {};
+    
+    for (const [tokenAddress, data] of Object.entries(result.results)) {
+      if (data.status === "success") {
+        formattedResults[tokenAddress] = {
+          topTraders: data.traders.slice(0, limit),
+          count: data.count
+        };
+      } else {
+        formattedResults[tokenAddress] = {
+          error: data.message || "Unknown error",
+          topTraders: []
+        };
+      }
+    }
+    
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            status: result.status,
+            network: currentNetwork,
+            errors: result.errors,
+            results: formattedResults
+          })
+        }
+      ]
+    };
+  } catch (error) {
+    console.error("Error in multipleTopTradersGMGNTool:", error);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            status: "error",
+            message: error.message,
+            network: currentNetwork
+          })
+        }
+      ]
+    };
+  }
+}
+
+async function tokenTradesGMGNTool({ tokenAddress, fromTimestamp = 0, toTimestamp = Math.floor(Date.now() / 1000), limit = 100, maker = "" }) {
+  try {
+    const result = await getTokenTradesGMGN(tokenAddress, fromTimestamp, toTimestamp, limit, maker);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            status: "success",
+            network: currentNetwork,
+            trades: result.data || [],
+            tokenAddress
+          })
+        }
+      ]
+    };
+  } catch (error) {
+    console.error("Error in tokenTradesGMGNTool:", error);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            status: "error",
+            message: error.message,
+            network: currentNetwork
+          })
+        }
+      ]
+    };
+  }
+}
+
+async function topTradersGMGNTronTool({ tokenAddress, limit = 100, orderBy = "profit", direction = "desc" }) {
+  try {
+    const result = await getTopTradersGMGNTron(tokenAddress, limit, orderBy, direction);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            status: "success",
+            network: "tron",
+            topTraders: result.traders || [],
+            count: result.count || 0,
+            tokenAddress
+          })
+        }
+      ]
+    };
+  } catch (error) {
+    console.error("Error in topTradersGMGNTronTool:", error);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            status: "error",
+            message: error.message,
+            network: "tron"
+          })
+        }
+      ]
+    };
+  }
+}
+
+async function multipleTopTradersGMGNTronTool({ tokenAddresses, limit = 5, orderBy = "profit", direction = "desc" }) {
+  try {
+    const result = await getMultipleTopTradersGMGNTron(tokenAddresses, limit, orderBy, direction);
+    
+    // Transform the results into a more readable format
+    const formattedResults = {};
+    
+    for (const [tokenAddress, data] of Object.entries(result.results)) {
+      if (data.status === "success") {
+        formattedResults[tokenAddress] = {
+          topTraders: data.traders.slice(0, limit),
+          count: data.count
+        };
+      } else {
+        formattedResults[tokenAddress] = {
+          error: data.message || "Unknown error",
+          topTraders: []
+        };
+      }
+    }
+    
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            status: result.status,
+            network: "tron",
+            errors: result.errors,
+            results: formattedResults
+          })
+        }
+      ]
+    };
+  } catch (error) {
+    console.error("Error in multipleTopTradersGMGNTronTool:", error);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            status: "error",
+            message: error.message,
+            network: "tron"
+          })
+        }
+      ]
+    };
+  }
+}
+
+async function tokenTradesGMGNTronTool({ tokenAddress, fromTimestamp = 0, toTimestamp = Math.floor(Date.now() / 1000), limit = 100, maker = "" }) {
+  try {
+    const result = await getTokenTradesGMGNTron(tokenAddress, fromTimestamp, toTimestamp, limit, maker);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            status: "success",
+            network: "tron",
+            trades: result.data || [],
+            tokenAddress
+          })
+        }
+      ]
+    };
+  } catch (error) {
+    console.error("Error in tokenTradesGMGNTronTool:", error);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            status: "error",
+            message: error.message,
+            network: "tron"
+          })
+        }
+      ]
+    };
+  }
+}
 
 // Tool implementations
 const walletCreateTool = async (args) => {
@@ -1693,6 +1956,176 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["tokenAddress"]
         }
+      },
+      {
+        name: "topTradersGMGN",
+        description: "Get top traders for a specific token from GMGN",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tokenAddress: {
+              type: "string",
+              description: "Token smart contract address"
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of traders to return (default: 100)"
+            },
+            orderBy: {
+              type: "string",
+              description: "Field to order results by (default: 'profit'"
+            },
+            direction: {
+              type: "string",
+              description: "Sort direction (asc or desc)"
+            }
+          },
+          required: ["tokenAddress"]
+        }
+      },
+      {
+        name: "multipleTopTradersGMGN",
+        description: "Get top traders for multiple tokens in a single call",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tokenAddresses: {
+              type: "array",
+              items: {
+                type: "string"
+              },
+              description: "Array of token smart contract addresses"
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of traders to return per token (default: 5)"
+            },
+            orderBy: {
+              type: "string",
+              description: "Field to order results by (default: 'profit'"
+            },
+            direction: {
+              type: "string",
+              description: "Sort direction (asc or desc)"
+            }
+          },
+          required: ["tokenAddresses"]
+        }
+      },
+      {
+        name: "tokenTradesGMGN",
+        description: "Get token trades from GMGN",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tokenAddress: {
+              type: "string",
+              description: "Token smart contract address"
+            },
+            fromTimestamp: {
+              type: "number",
+              description: "Start timestamp"
+            },
+            toTimestamp: {
+              type: "number",
+              description: "End timestamp"
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of trades to return (default: 100)"
+            },
+            maker: {
+              type: "string",
+              description: "Trader wallet address"
+            }
+          },
+          required: ["tokenAddress"]
+        }
+      },
+      {
+        name: "topTradersGMGNTron",
+        description: "Get top traders for a specific token from GMGN Tron",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tokenAddress: {
+              type: "string",
+              description: "Token smart contract address"
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of traders to return (default: 100)"
+            },
+            orderBy: {
+              type: "string",
+              description: "Field to order results by (default: 'profit'"
+            },
+            direction: {
+              type: "string",
+              description: "Sort direction (asc or desc)"
+            }
+          },
+          required: ["tokenAddress"]
+        }
+      },
+      {
+        name: "multipleTopTradersGMGNTron",
+        description: "Get top traders for multiple tokens in a single call from GMGN Tron",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tokenAddresses: {
+              type: "array",
+              items: {
+                type: "string"
+              },
+              description: "Array of token smart contract addresses"
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of traders to return per token (default: 5)"
+            },
+            orderBy: {
+              type: "string",
+              description: "Field to order results by (default: 'profit'"
+            },
+            direction: {
+              type: "string",
+              description: "Sort direction (asc or desc)"
+            }
+          },
+          required: ["tokenAddresses"]
+        }
+      },
+      {
+        name: "tokenTradesGMGNTron",
+        description: "Get token trades from GMGN Tron",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tokenAddress: {
+              type: "string",
+              description: "Token smart contract address"
+            },
+            fromTimestamp: {
+              type: "number",
+              description: "Start timestamp"
+            },
+            toTimestamp: {
+              type: "number",
+              description: "End timestamp"
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of trades to return (default: 100)"
+            },
+            maker: {
+              type: "string",
+              description: "Trader wallet address"
+            }
+          },
+          required: ["tokenAddress"]
+        }
       }
     ]
   };
@@ -1769,6 +2202,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     case "tokenLiquidityEvents": {
       const validated = TokenLiquidityEventsSchema.parse(args);
       return await tokenLiquidityEventsTool(validated);
+    }
+    case "topTradersGMGN": {
+      const validated = GMGNTopTradersSchema.parse(args);
+      return await topTradersGMGNTool(validated);
+    }
+    case "multipleTopTradersGMGN": {
+      const validated = GMGNMultipleTopTradersSchema.parse(args);
+      return await multipleTopTradersGMGNTool(validated);
+    }
+    case "tokenTradesGMGN": {
+      const validated = GMGNTokenTradesSchema.parse(args);
+      return await tokenTradesGMGNTool(validated);
+    }
+    case "topTradersGMGNTron": {
+      const validated = GMGNTopTradersSchema.parse(args);
+      return await topTradersGMGNTronTool(validated);
+    }
+    case "multipleTopTradersGMGNTron": {
+      const validated = GMGNMultipleTopTradersSchema.parse(args);
+      return await multipleTopTradersGMGNTronTool(validated);
+    }
+    case "tokenTradesGMGNTron": {
+      const validated = GMGNTokenTradesSchema.parse(args);
+      return await tokenTradesGMGNTronTool(validated);
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
