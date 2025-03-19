@@ -10,6 +10,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
+import { request, gql } from 'graphql-request';
 
 // Get the directory name for the current module first
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -18,6 +19,457 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Using path.resolve to ensure .env is loaded from the same directory as this script
 // This enables running the script from any directory: node /path/to/mcp-server-new.js
 dotenv.config({ path: path.resolve(__dirname, '.env') });
+
+// Set up Bitquery API directly in the server
+const BITQUERY_ENDPOINT = 'https://streaming.bitquery.io/graphql';
+const BITQUERY_API_KEY = process.env.BITQUERY_API_KEY;
+
+// Bitquery API headers
+const bitqueryHeaders = {
+  'Content-Type': 'application/json',
+  'X-API-KEY': BITQUERY_API_KEY
+};
+
+// Direct implementation of Bitquery functions
+// Get newly created tokens on Four Meme
+async function getNewlyCreatedTokensOnFourMeme(limit = 10) {
+  const query = gql`
+    {
+      EVM(dataset: realtime, network: bsc) {
+        Transfers(
+          orderBy: { descending: Block_Time }
+          limit: { count: ${limit} }
+          where: {
+            Transaction: {
+              To: { is: "0x5c952063c7fc8610ffdb798152d69f0b9550762b" }
+            }
+            Transfer: {
+              Sender: { is: "0x0000000000000000000000000000000000000000" }
+            }
+          }
+        ) {
+          Transfer {
+            Amount
+            AmountInUSD
+            Currency {
+              Name
+              Symbol
+              SmartContract
+              Decimals
+            }
+            Id
+            Index
+            Success
+            Type
+            URI
+            Sender
+            Receiver
+          }
+          Call {
+            From
+            Value
+            To
+            Signature {
+              Name
+              Signature
+            }
+          }
+          Log {
+            SmartContract
+            Signature {
+              Name
+            }
+          }
+          TransactionStatus {
+            Success
+          }
+          Transaction {
+            Hash
+            From
+            To
+          }
+          Block {
+            Time
+            Number
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const data = await request(BITQUERY_ENDPOINT, query, null, bitqueryHeaders);
+    return data.EVM.Transfers;
+  } catch (error) {
+    console.error('Error fetching newly created tokens:', error);
+    throw error;
+  }
+}
+
+// Get latest trades of a token on Four Meme
+async function getLatestTradesOfToken(tokenAddress, limit = 10) {
+  const query = gql`
+    {
+      EVM(dataset: realtime, network: bsc) {
+        Events(
+          where: {
+            Log: {Signature: {Name: {is: "TokenSale"}}}, 
+            Arguments: {includes: {Value: {Address: {is: "${tokenAddress}"}}}}}
+          orderBy: {descending: Block_Time}
+          limit: {count: ${limit}}
+        ) {
+          Log {
+            Signature {
+              Name
+            }
+          }
+          Transaction {
+            From
+            To
+            Value
+            Type
+            Hash
+          }
+          Arguments {
+            Type
+            Value {
+              ... on EVM_ABI_Boolean_Value_Arg {
+                bool
+              }
+              ... on EVM_ABI_Bytes_Value_Arg {
+                hex
+              }
+              ... on EVM_ABI_BigInt_Value_Arg {
+                bigInteger
+              }
+              ... on EVM_ABI_String_Value_Arg {
+                string
+              }
+              ... on EVM_ABI_Integer_Value_Arg {
+                integer
+              }
+              ... on EVM_ABI_Address_Value_Arg {
+                address
+              }
+            }
+            Name
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const data = await request(BITQUERY_ENDPOINT, query, null, bitqueryHeaders);
+    return data.EVM.Events;
+  } catch (error) {
+    console.error(`Error fetching latest trades for token ${tokenAddress}:`, error);
+    throw error;
+  }
+}
+
+// Track trades by a Four Meme user
+async function getTradesByUser(userAddress) {
+  const query = gql`
+    {
+      EVM(dataset: realtime, network: bsc) {
+        buys: Transfers(
+          orderBy: { descending: Block_Time }
+          where: {
+            Transaction: {
+              To: { is: "0x5c952063c7fc8610ffdb798152d69f0b9550762b" }
+            }
+            Transfer: {
+              Receiver: { is: "${userAddress}" }
+            }
+          }
+        ) {
+          Transfer {
+            Amount
+            AmountInUSD
+            Currency {
+              Name
+              Symbol
+              SmartContract
+              Decimals
+            }
+            Id
+            Index
+            Success
+            Type
+            URI
+            Sender
+            Receiver
+          }
+          TransactionStatus {
+            Success
+          }
+          Transaction {
+            Hash
+            From
+            To
+          }
+          Block {
+            Time
+            Number
+          }
+        }
+        sells: Transfers(
+          orderBy: { descending: Block_Time }
+          where: {
+            Transaction: {
+              To: { is: "0x5c952063c7fc8610ffdb798152d69f0b9550762b" }
+            }
+            Transfer: {
+              Sender: { is: "${userAddress}" }
+            }
+          }
+        ) {
+          Transfer {
+            Amount
+            AmountInUSD
+            Currency {
+              Name
+              Symbol
+              SmartContract
+              Decimals
+            }
+            Id
+            Index
+            Success
+            Type
+            URI
+            Sender
+            Receiver
+          }
+          TransactionStatus {
+            Success
+          }
+          Transaction {
+            Hash
+            From
+            To
+          }
+          Block {
+            Time
+            Number
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const data = await request(BITQUERY_ENDPOINT, query, null, bitqueryHeaders);
+    return {
+      buys: data.EVM.buys,
+      sells: data.EVM.sells
+    };
+  } catch (error) {
+    console.error(`Error fetching trades for user ${userAddress}:`, error);
+    throw error;
+  }
+}
+
+// Get latest transfers of a token on Four Meme
+async function getLatestTokenTransfers(tokenAddress, limit = 10) {
+  const query = gql`
+    {
+      EVM(dataset: realtime, network: bsc) {
+        Transfers(
+          orderBy: { descending: Block_Time }
+          limit: { count: ${limit} }
+          where: {
+            Transaction: {
+              To: { is: "0x5c952063c7fc8610ffdb798152d69f0b9550762b" }
+            }
+            Transfer: {
+              Currency: {
+                SmartContract: { is: "${tokenAddress}" }
+              }
+            }
+            TransactionStatus: { Success: true }
+          }
+        ) {
+          Transfer {
+            Amount
+            AmountInUSD
+            Currency {
+              Name
+              Symbol
+              SmartContract
+              Decimals
+            }
+            Sender
+            Receiver
+          }
+          Transaction {
+            Hash
+          }
+          Block {
+            Time
+            Number
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const data = await request(BITQUERY_ENDPOINT, query, null, bitqueryHeaders);
+    return data.EVM.Transfers;
+  } catch (error) {
+    console.error(`Error fetching token transfers for ${tokenAddress}:`, error);
+    throw error;
+  }
+}
+
+// Get top buyers for a token on Four Meme
+async function getTopBuyersForToken(tokenAddress) {
+  const query = gql`
+    {
+      EVM(dataset: realtime, network: bsc) {
+        Transfers(
+          orderBy: { descending: Block_Time, descendingByField: "total" }
+          where: {
+            Transaction: {
+              To: { is: "0x5c952063c7fc8610ffdb798152d69f0b9550762b" }
+            }
+            Transfer: {
+              Currency: {
+                SmartContract: { is: "${tokenAddress}" }
+              }
+              Sender: { is: "0x5c952063c7fc8610ffdb798152d69f0b9550762b" }
+            }
+            TransactionStatus: { Success: true }
+          }
+        ) {
+          Transfer {
+            Amount
+            AmountInUSD
+            Currency {
+              Name
+              Symbol
+              SmartContract
+              Decimals
+            }
+            Buyer: Receiver
+          }
+          total: sum(of: Transfer_Amount)
+        }
+      }
+    }
+  `;
+
+  try {
+    const data = await request(BITQUERY_ENDPOINT, query, null, bitqueryHeaders);
+    return data.EVM.Transfers;
+  } catch (error) {
+    console.error(`Error fetching top buyers for token ${tokenAddress}:`, error);
+    throw error;
+  }
+}
+
+// Track liquidity add events for all tokens on Four Meme
+async function getLiquidityAddedEvents(limit = 20) {
+  const query = gql`
+    {
+      EVM(dataset: realtime, network: bsc) {
+        Events(
+          limit: {count: ${limit}}
+          where: {
+            LogHeader: {Address: {is: "0x5c952063c7fc8610ffdb798152d69f0b9550762b"}},
+            Log: {Signature: {Name: {is: "LiquidityAdded"}}}
+          }
+        ) {
+          Block {
+            Time
+            Number
+            Hash
+          }
+          Transaction {
+            Hash
+            From
+            To
+          }
+          Arguments {
+            Name
+            Value {
+              ... on EVM_ABI_Integer_Value_Arg {
+                integer
+              }
+              ... on EVM_ABI_Address_Value_Arg {
+                address
+              }
+              ... on EVM_ABI_BigInt_Value_Arg {
+                bigInteger
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const data = await request(BITQUERY_ENDPOINT, query, null, bitqueryHeaders);
+    return data.EVM.Events;
+  } catch (error) {
+    console.error('Error fetching liquidity added events:', error);
+    throw error;
+  }
+}
+
+// Track liquidity add events for a specific token on Four Meme
+async function getTokenLiquidityAddedEvents(tokenAddress, limit = 20) {
+  const query = gql`
+    {
+      EVM(dataset: realtime, network: bsc) {
+        Events(
+          limit: {count: ${limit}}
+          where: {
+            LogHeader: {Address: {is: "0x5c952063c7fc8610ffdb798152d69f0b9550762b"}}, 
+            Log: {Signature: {Name: {is: "LiquidityAdded"}}}, 
+            Arguments: {includes: {Name: {is: "token1"}, Value: {Address: {is: "${tokenAddress}"}}}}
+          }
+        ) {
+          Block {
+            Time
+            Number
+            Hash
+          }
+          Transaction {
+            Hash
+            From
+            To
+          }
+          Arguments {
+            Name
+            Value {
+              ... on EVM_ABI_Integer_Value_Arg {
+                integer
+              }
+              ... on EVM_ABI_Address_Value_Arg {
+                address
+              }
+              ... on EVM_ABI_BigInt_Value_Arg {
+                bigInteger
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const data = await request(BITQUERY_ENDPOINT, query, null, bitqueryHeaders);
+    return data.EVM.Events;
+  } catch (error) {
+    console.error(`Error fetching liquidity added events for token ${tokenAddress}:`, error);
+    throw error;
+  }
+}
 
 // Make network configuration mutable for runtime switching
 let currentNetwork = process.env.NETWORK || 'testnet';
@@ -208,6 +660,38 @@ const TokenApproveSchema = z.object({
   tokenAddress: z.string(),
   spender: z.string(),
   amount: z.string()
+});
+
+// Bitquery tool schemas
+const NewTokensSchema = z.object({
+  limit: z.number().min(1).max(100).optional()
+});
+
+const TokenTradesSchema = z.object({
+  tokenAddress: z.string(),
+  limit: z.number().min(1).max(100).optional()
+});
+
+const UserTradesSchema = z.object({
+  userAddress: z.string()
+});
+
+const TokenTransfersSchema = z.object({
+  tokenAddress: z.string(),
+  limit: z.number().min(1).max(100).optional()
+});
+
+const TopBuyersSchema = z.object({
+  tokenAddress: z.string()
+});
+
+const LiquidityEventsSchema = z.object({
+  limit: z.number().min(1).max(100).optional()
+});
+
+const TokenLiquidityEventsSchema = z.object({
+  tokenAddress: z.string(),
+  limit: z.number().min(1).max(100).optional()
 });
 
 // Tool implementations
@@ -685,6 +1169,210 @@ const networkSwitchTool = async (args) => {
   }
 };
 
+// Bitquery tools implementations
+const newTokensTool = async (args) => {
+  try {
+    const tokens = await getNewlyCreatedTokensOnFourMeme(args.limit || 10);
+    return {
+      content: [{ 
+        type: "text", 
+        text: JSON.stringify({
+          status: 'success',
+          tokens: tokens,
+          count: tokens.length,
+          network: currentNetwork
+        })
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{ 
+        type: "text", 
+        text: JSON.stringify({
+          status: 'error',
+          message: error.message
+        })
+      }],
+      isError: true
+    };
+  }
+};
+
+const tokenTradesTool = async (args) => {
+  try {
+    const trades = await getLatestTradesOfToken(args.tokenAddress, args.limit || 10);
+    return {
+      content: [{ 
+        type: "text", 
+        text: JSON.stringify({
+          status: 'success',
+          trades: trades,
+          count: trades.length,
+          tokenAddress: args.tokenAddress,
+          network: currentNetwork
+        })
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{ 
+        type: "text", 
+        text: JSON.stringify({
+          status: 'error',
+          message: error.message
+        })
+      }],
+      isError: true
+    };
+  }
+};
+
+const userTradesTool = async (args) => {
+  try {
+    const trades = await getTradesByUser(args.userAddress);
+    return {
+      content: [{ 
+        type: "text", 
+        text: JSON.stringify({
+          status: 'success',
+          buys: trades.buys,
+          buyCount: trades.buys.length,
+          sells: trades.sells,
+          sellCount: trades.sells.length,
+          userAddress: args.userAddress,
+          network: currentNetwork
+        })
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{ 
+        type: "text", 
+        text: JSON.stringify({
+          status: 'error',
+          message: error.message
+        })
+      }],
+      isError: true
+    };
+  }
+};
+
+const tokenTransfersTool = async (args) => {
+  try {
+    const transfers = await getLatestTokenTransfers(args.tokenAddress, args.limit || 10);
+    return {
+      content: [{ 
+        type: "text", 
+        text: JSON.stringify({
+          status: 'success',
+          transfers: transfers,
+          count: transfers.length,
+          tokenAddress: args.tokenAddress,
+          network: currentNetwork
+        })
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{ 
+        type: "text", 
+        text: JSON.stringify({
+          status: 'error',
+          message: error.message
+        })
+      }],
+      isError: true
+    };
+  }
+};
+
+const topBuyersTool = async (args) => {
+  try {
+    const buyers = await getTopBuyersForToken(args.tokenAddress);
+    return {
+      content: [{ 
+        type: "text", 
+        text: JSON.stringify({
+          status: 'success',
+          buyers: buyers,
+          count: buyers.length,
+          tokenAddress: args.tokenAddress,
+          network: currentNetwork
+        })
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{ 
+        type: "text", 
+        text: JSON.stringify({
+          status: 'error',
+          message: error.message
+        })
+      }],
+      isError: true
+    };
+  }
+};
+
+const liquidityEventsTool = async (args) => {
+  try {
+    const events = await getLiquidityAddedEvents(args.limit || 20);
+    return {
+      content: [{ 
+        type: "text", 
+        text: JSON.stringify({
+          status: 'success',
+          events: events,
+          count: events.length,
+          network: currentNetwork
+        })
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{ 
+        type: "text", 
+        text: JSON.stringify({
+          status: 'error',
+          message: error.message
+        })
+      }],
+      isError: true
+    };
+  }
+};
+
+const tokenLiquidityEventsTool = async (args) => {
+  try {
+    const events = await getTokenLiquidityAddedEvents(args.tokenAddress, args.limit || 20);
+    return {
+      content: [{ 
+        type: "text", 
+        text: JSON.stringify({
+          status: 'success',
+          events: events,
+          count: events.length,
+          tokenAddress: args.tokenAddress,
+          network: currentNetwork
+        })
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{ 
+        type: "text", 
+        text: JSON.stringify({
+          status: 'error',
+          message: error.message
+        })
+      }],
+      isError: true
+    };
+  }
+};
+
 // Export key functions that can be imported by other scripts
 export { 
   getWalletDetails as getWalletBalance, 
@@ -694,7 +1382,14 @@ export {
   tokenBalanceTool as getTokenBalance,
   tokenTransferTool as transferToken,
   tokenApproveTool as approveToken,
-  switchNetwork
+  switchNetwork,
+  newTokensTool,
+  tokenTradesTool,
+  userTradesTool,
+  tokenTransfersTool,
+  topBuyersTool,
+  liquidityEventsTool,
+  tokenLiquidityEventsTool
 };
 
 // 1. Create an MCP server instance
@@ -888,6 +1583,116 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["network"]
         }
+      },
+      {
+        name: "newTokens",
+        description: "Get newly created tokens on Four Meme Exchange",
+        inputSchema: {
+          type: "object",
+          properties: {
+            limit: {
+              type: "number",
+              description: "Maximum number of tokens to return (default: 10)"
+            }
+          },
+          required: []
+        }
+      },
+      {
+        name: "tokenTrades",
+        description: "Get latest trades of a specific token on Four Meme Exchange",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tokenAddress: {
+              type: "string",
+              description: "Token smart contract address"
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of trades to return (default: 10)"
+            }
+          },
+          required: ["tokenAddress"]
+        }
+      },
+      {
+        name: "userTrades",
+        description: "Track trades (buys and sells) by a specific user on Four Meme Exchange",
+        inputSchema: {
+          type: "object",
+          properties: {
+            userAddress: {
+              type: "string",
+              description: "User wallet address"
+            }
+          },
+          required: ["userAddress"]
+        }
+      },
+      {
+        name: "tokenTransfers",
+        description: "Get latest transfers of a specific token on Four Meme Exchange",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tokenAddress: {
+              type: "string",
+              description: "Token smart contract address"
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of transfers to return (default: 10)"
+            }
+          },
+          required: ["tokenAddress"]
+        }
+      },
+      {
+        name: "topBuyers",
+        description: "Get top buyers for a specific token on Four Meme Exchange",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tokenAddress: {
+              type: "string",
+              description: "Token smart contract address"
+            }
+          },
+          required: ["tokenAddress"]
+        }
+      },
+      {
+        name: "liquidityEvents",
+        description: "Track liquidity add events for all tokens on Four Meme Exchange",
+        inputSchema: {
+          type: "object",
+          properties: {
+            limit: {
+              type: "number",
+              description: "Maximum number of events to return (default: 20)"
+            }
+          },
+          required: []
+        }
+      },
+      {
+        name: "tokenLiquidityEvents",
+        description: "Track liquidity add events for a specific token on Four Meme Exchange",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tokenAddress: {
+              type: "string",
+              description: "Token smart contract address"
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of events to return (default: 20)"
+            }
+          },
+          required: ["tokenAddress"]
+        }
       }
     ]
   };
@@ -936,6 +1741,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     case "network.switch": {
       const validated = NetworkSwitchSchema.parse(args);
       return await networkSwitchTool(validated);
+    }
+    case "newTokens": {
+      const validated = NewTokensSchema.parse(args);
+      return await newTokensTool(validated);
+    }
+    case "tokenTrades": {
+      const validated = TokenTradesSchema.parse(args);
+      return await tokenTradesTool(validated);
+    }
+    case "userTrades": {
+      const validated = UserTradesSchema.parse(args);
+      return await userTradesTool(validated);
+    }
+    case "tokenTransfers": {
+      const validated = TokenTransfersSchema.parse(args);
+      return await tokenTransfersTool(validated);
+    }
+    case "topBuyers": {
+      const validated = TopBuyersSchema.parse(args);
+      return await topBuyersTool(validated);
+    }
+    case "liquidityEvents": {
+      const validated = LiquidityEventsSchema.parse(args);
+      return await liquidityEventsTool(validated);
+    }
+    case "tokenLiquidityEvents": {
+      const validated = TokenLiquidityEventsSchema.parse(args);
+      return await tokenLiquidityEventsTool(validated);
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
